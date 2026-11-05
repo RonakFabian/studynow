@@ -76,14 +76,14 @@ Limits: a user who already has the old frontend open keeps working (API is backw
 1. **backend**: `npm ci`, ESLint, integration tests (`node --test`) against a MongoDB service container.
 2. **frontend**: `npm ci`, ESLint, production build.
 3. **images** (push to `main` only, after 1 and 2 pass): build both images and push them to GHCR, tagged with the 7-char commit sha.
-4. **deploy** (push to `main`, after 3): SSH to the VM and run `scripts/deploy.sh <sha>` with `BUILD_LOCAL=0`, i.e. the blue/green zero-downtime deploy above. A failing health gate or smoke test leaves the live version untouched (or rolls back automatically).
+4. **deploy** (push to `main`, after 3): SSH to the VM, ship the runtime files (`docker-compose.yml`, `scripts/`, `gateway/`, `mongo/`, `backup/`) with `tar`, and run `scripts/deploy.sh <sha>` with `BUILD_LOCAL=0`: the VM **pulls the images from GHCR** and does the blue/green zero-downtime deploy above. There is no git checkout or build on the VM. A failing health gate or smoke test leaves the live version untouched (or rolls back automatically).
 
 The deploy job is **off until the VM exists**: it only runs when the repo variable `DEPLOY_ENABLED` is `true`. Locally the same checks run with `npm run lint && npm test` (set `MONGO_URI` to a throwaway MongoDB).
 
 ### One-time VM setup
 
 1. Ubuntu 24.04 VM (2 GB RAM: two colours run side by side), SSH key login, firewall open on 22/80/443 only.
-2. Install Docker + the compose plugin and `git`; clone this repo to `/opt/studyuk`.
+2. Install Docker + the compose plugin and create `/opt/studyuk` owned by the deploy user (no git or source checkout needed; the pipeline ships the runtime files).
 3. Create `/opt/studyuk/.env` from `.env.example` with real secrets, and put the age **public** key in `AGE_RECIPIENT` (the private key never needs to be on the VM, except while restoring).
 4. Create a deploy SSH key pair; add the public key to the VM user's `authorized_keys`.
 5. In GitHub (Settings → Secrets and variables → Actions), create an Environment `production` and add secrets `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_KNOWN_HOSTS` (output of `ssh-keyscan <host>`), then the repository variable `DEPLOY_ENABLED=true`.

@@ -94,6 +94,7 @@ jobs:
     environment: production
     concurrency: deploy-production        # never two deploys at once
     steps:
+      - uses: actions/checkout@v4        # only to ship the runtime files below; the VM has no git
       - name: Set up SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -115,5 +116,7 @@ jobs:
           SSH="ssh -i $HOME/.ssh/id_deploy -o IdentitiesOnly=yes $USER_NAME@$HOST"
           # registry login: token goes over stdin, never on a command line
           printf '%s' "$GHCR_TOKEN" | $SSH "docker login ghcr.io -u $GHCR_USER --password-stdin"
-          $SSH "cd /opt/studyuk && git fetch --quiet origin main && git reset --hard origin/main \
-                && BUILD_LOCAL=0 API_IMAGE=$PREFIX-api WEB_IMAGE=$PREFIX-web bash scripts/deploy.sh $TAG"
+          # ship only what the VM runs (compose file, scripts, configs); .env, deploy/, offsite/ are untouched
+          tar czf - docker-compose.yml gateway mongo scripts backup | $SSH "mkdir -p /opt/studyuk && tar xzf - -C /opt/studyuk"
+          # images come from GHCR (built once in the images job), nothing is built on the VM
+          $SSH "cd /opt/studyuk && BUILD_LOCAL=0 API_IMAGE=$PREFIX-api WEB_IMAGE=$PREFIX-web bash scripts/deploy.sh $TAG"
