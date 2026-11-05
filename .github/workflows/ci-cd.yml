@@ -78,11 +78,13 @@ jobs:
         with:
           context: backend
           push: true
+          provenance: false     # skip attestation manifests; GHCR sometimes answers "unknown blob" to them
           tags: ${{ steps.meta.outputs.prefix }}-api:${{ steps.meta.outputs.tag }}
       - uses: docker/build-push-action@v6
         with:
           context: frontend
           push: true
+          provenance: false
           tags: ${{ steps.meta.outputs.prefix }}-web:${{ steps.meta.outputs.tag }}
 
   deploy:
