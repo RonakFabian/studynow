@@ -5,6 +5,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 STATE=deploy/state.env          # which colour is live + which image tag each colour runs (not committed)
 GW_DIR=deploy/gateway           # generated nginx upstream file lives here (not committed)
 mkdir -p "$GW_DIR"
+# Create offsite/ ourselves: if Docker creates the bind-mount dir it is root-owned and the
+# non-root backup container (uid 1000 = the deploy user) cannot write its dumps there.
+mkdir -p offsite
 [ -f "$STATE" ] || printf 'ACTIVE=none\nPREVIOUS=none\nBLUE_TAG=none\nGREEN_TAG=none\nAPI_IMAGE=studyuk-api\nWEB_IMAGE=studyuk-web\n' > "$STATE"
 _api_override="${API_IMAGE:-}"; _web_override="${WEB_IMAGE:-}"   # env passed to a deploy wins over saved state
 # shellcheck disable=SC1090
