@@ -114,11 +114,22 @@ jobs:
           PREFIX: ${{ needs.images.outputs.prefix }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APP_KEY: ${{ secrets.B2_APP_KEY }}
         run: |
           SSH="ssh -i $HOME/.ssh/id_deploy -o IdentitiesOnly=yes $USER_NAME@$HOST"
           # registry login: token goes over stdin, never on a command line
           printf '%s' "$GHCR_TOKEN" | $SSH "docker login ghcr.io -u $GHCR_USER --password-stdin"
           # ship only what the VM runs (compose file, scripts, configs); .env, deploy/, offsite/ are untouched
           tar czf - docker-compose.yml gateway mongo scripts backup | $SSH "mkdir -p /opt/studyuk && tar xzf - -C /opt/studyuk"
+          # off-provider backup credentials: GitHub secrets -> /opt/studyuk/rclone.env (mode 600, never in git).
+          # This is the write+list-only B2 key; the read/restore key and the age private key are never stored here.
+          if [ -n "$B2_KEY_ID" ]; then
+            printf 'RCLONE_REMOTE=b2:%s\nRCLONE_CONFIG_B2_TYPE=b2\nRCLONE_CONFIG_B2_ACCOUNT=%s\nRCLONE_CONFIG_B2_KEY=%s\n' \
+              "$B2_BUCKET" "$B2_KEY_ID" "$B2_APP_KEY" | $SSH "umask 077 && cat > /opt/studyuk/rclone.env"
+          else
+            echo "B2 secrets not set: backups stay on the VM only"
+          fi
           # images come from GHCR (built once in the images job), nothing is built on the VM
           $SSH "cd /opt/studyuk && BUILD_LOCAL=0 API_IMAGE=$PREFIX-api WEB_IMAGE=$PREFIX-web bash scripts/deploy.sh $TAG"

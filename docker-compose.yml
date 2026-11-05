@@ -121,7 +121,12 @@ services:
     build: ./backup
     profiles: ["restore"]
     command: ["restore.sh"]
-    environment: *backup-env
+    environment:
+      <<: *backup-env
+      RESTORE_SOURCE: ${RESTORE_SOURCE:-local}     # "remote" = download the newest backup from the bucket
+    env_file:
+      - path: ./rclone.env
+        required: false
     volumes:
       - ./offsite:/offsite:ro
       - ./secrets/age.key:/run/secrets/age.key:ro

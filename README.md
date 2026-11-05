@@ -88,14 +88,14 @@ The deploy job is **off until the VM exists**: it only runs when the repo variab
 2. Install Docker + the compose plugin and create `/opt/studyuk` owned by the deploy user (no git or source checkout needed; the pipeline ships the runtime files).
 3. Create `/opt/studyuk/.env` from `.env.example` with real secrets, and put the age **public** key in `AGE_RECIPIENT` (the private key never needs to be on the VM, except while restoring).
 4. Create a deploy SSH key pair; add the public key to the VM user's `authorized_keys`.
-5. In GitHub (Settings → Secrets and variables → Actions), create an Environment `production` and add secrets `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_KNOWN_HOSTS` (output of `ssh-keyscan <host>`), then the repository variable `DEPLOY_ENABLED=true`.
+5. In GitHub (Settings → Secrets and variables → Actions), create an Environment `production` and add secrets `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_KNOWN_HOSTS` (output of `ssh-keyscan <host>`), then the repository variable `DEPLOY_ENABLED=true`. For off-provider backups also add the environment secrets `B2_BUCKET`, `B2_KEY_ID`, `B2_APP_KEY` (a Backblaze key restricted to that bucket with **list + write only**); each deploy writes them to `/opt/studyuk/rclone.env` (mode 600) on the VM, where the hourly backup container reads them.
 6. Make the GHCR packages readable by the VM (the workflow logs the VM in with the job's short-lived token for each deploy).
 
 ## Backups
 
 - `backup` service runs `backup/backup.sh` every hour (`BACKUP_INTERVAL_SECONDS`): `mongodump` (as the least-privilege app user) → gzip → **age** encryption → `./offsite/` (a clearly-labelled second location simulating off-provider). Files older than `BACKUP_RETENTION_DAYS` are deleted.
 - The backup container only holds the age **public** key (`AGE_RECIPIENT` in `.env`). The **private** key lives in `secrets/age.key` (gitignored) and is only mounted into the manual `restore` service. Store a copy of it somewhere else (password manager) - without it the backups are unreadable.
-- Optional second copy to an S3-compatible bucket (Cloudflare R2 / Backblaze B2): create a gitignored `rclone.env` with `RCLONE_REMOTE=r2:bucket/path` and the `RCLONE_CONFIG_R2_*` settings. Not tested against a real bucket yet.
+- Second copy to a Backblaze B2 bucket (off the VM provider) via rclone. In production the deploy job writes `rclone.env` from GitHub secrets (see CI/CD). Locally, create a gitignored `rclone.env` with `RCLONE_REMOTE=b2:bucket`, `RCLONE_CONFIG_B2_TYPE=b2`, `RCLONE_CONFIG_B2_ACCOUNT=<keyID>`, `RCLONE_CONFIG_B2_KEY=<applicationKey>`. The VM's key can only list and write, so a compromised VM cannot read or delete backups. Restore from the bucket needs a separate read key on your laptop: `RESTORE_SOURCE=remote docker compose run --rm restore`. Not yet verified against the real bucket.
 - Manual backup: `docker compose run --rm --no-deps backup backup.sh`
 - Generate a key pair: `docker run --rm --entrypoint age-keygen studynow-backup > secrets/age.key` (put the printed public key in `.env` as `AGE_RECIPIENT`).
 
