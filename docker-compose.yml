@@ -1,3 +1,36 @@
+# Blue/green: each colour = one api + one web container. The gateway routes to the live colour.
+# Don't start colours by hand - use scripts/deploy.sh, scripts/rollback.sh, scripts/start.sh.
+
+x-api: &api
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  stop_grace_period: 15s
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    interval: 5s
+    timeout: 3s
+    retries: 5
+    start_period: 10s
+
+x-api-env: &api-env
+  MONGO_HOST: mongo
+  MONGO_APP_DB: ${MONGO_APP_DB}
+  MONGO_APP_USER: ${MONGO_APP_USER}
+  MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD}
+  JWT_SECRET: ${JWT_SECRET}
+
+x-web: &web
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+    interval: 5s
+    timeout: 3s
+    retries: 5
+
 services:
   mongo:
     image: mongo:7
@@ -18,32 +51,82 @@ services:
       retries: 5
     # no ports: only reachable from other containers
 
-  api:
-    build: ./backend
-    restart: unless-stopped
+  api-blue:
+    <<: *api
+    profiles: ["blue"]
+    image: ${API_IMAGE:-studyuk-api}:${BLUE_TAG:-none}
     environment:
+      <<: *api-env
+      APP_VERSION: ${BLUE_TAG:-none}
+  web-blue:
+    <<: *web
+    profiles: ["blue"]
+    image: ${WEB_IMAGE:-studyuk-web}:${BLUE_TAG:-none}
+
+  api-green:
+    <<: *api
+    profiles: ["green"]
+    image: ${API_IMAGE:-studyuk-api}:${GREEN_TAG:-none}
+    environment:
+      <<: *api-env
+      APP_VERSION: ${GREEN_TAG:-none}
+  web-green:
+    <<: *web
+    profiles: ["green"]
+    image: ${WEB_IMAGE:-studyuk-web}:${GREEN_TAG:-none}
+
+  # The only public port. Config is static; deploy.sh rewrites deploy/gateway/active.conf and reloads.
+  gateway:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:8080"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/gateway:/etc/nginx/upstream.d:ro
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Hourly encrypted dump -> ./offsite (simulated off-provider location).
+  # Only has the age PUBLIC key, so it cannot decrypt what it writes.
+  backup:
+    build: ./backup
+    restart: unless-stopped
+    environment: &backup-env
       MONGO_HOST: mongo
       MONGO_APP_DB: ${MONGO_APP_DB}
       MONGO_APP_USER: ${MONGO_APP_USER}
       MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
-    read_only: true
+      AGE_RECIPIENT: ${AGE_RECIPIENT}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-3600}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    env_file:
+      - path: ./rclone.env      # optional: S3-compatible bucket (R2/B2) settings
+        required: false
+    volumes:
+      - ./offsite:/offsite
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:
       mongo:
         condition: service_healthy
-    # no ports: nginx proxies /api to it
 
-  web:
-    build: ./frontend
-    restart: unless-stopped
-    ports:
-      - "${WEB_PORT:-80}:8080"
+  # Manual only: docker compose run --rm restore   (needs ./secrets/age.key)
+  restore:
+    build: ./backup
+    profiles: ["restore"]
+    command: ["restore.sh"]
+    environment: *backup-env
+    volumes:
+      - ./offsite:/offsite:ro
+      - ./secrets/age.key:/run/secrets/age.key:ro
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    depends_on:
-      - api
 
 volumes:
   mongo_data:

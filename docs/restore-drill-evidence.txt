@@ -1,0 +1,38 @@
+﻿[12.08.06Z] Check the stack is up (deploy first with scripts/deploy.sh <tag> if not)
+[12.08.06Z] Seed data BEFORE the backup (user drill-before + one course)
+  DB now: studyuk> users=5 courses=9  studyuk> 
+[12.08.07Z] Take an encrypted backup (this is the recovery point)
+2026-11-05T12:08:08Z backup: dumping studyuk
+2026-11-05T12:08:08Z backup: wrote /offsite/studyuk-20261105T120808Z.archive.gz.age (1794 bytes, 0s)
+2026-11-05T12:08:08Z backup: done
+  backup file: studyuk-20261105T120808Z.archive.gz.age (1794 bytes) - ciphertext, first bytes: 
+[12.08.08Z] Add data AFTER the backup (this is what an outage would lose)
+  DB before disaster: studyuk> users=6 courses=10  studyuk> 
+[12.08.34Z] RECOVERY 1/4: start an empty MongoDB (auth + app user are created by the init script)
+[12.08.35Z] RECOVERY 2/4: restore from the newest encrypted off-site backup
+  2026-11-05T12:08:35Z restore: restoring from /offsite/studyuk-20261105T120808Z.archive.gz.age
+  2026-11-05T12:08:38.705+0000	The --db and --collection flags are deprecated for this use-case; please use --nsInclude instead, i.e. with --nsInclude=${DATABASE}.${COLLECTION}
+  2026-11-05T12:08:38.716+0000	preparing collections to restore from
+  2026-11-05T12:08:38.754+0000	restoring studyuk.users from archive on stdin
+  2026-11-05T12:08:38.765+0000	finished restoring studyuk.users (5 documents, 0 failures)
+  2026-11-05T12:08:38.788+0000	restoring studyuk.courses from archive on stdin
+  2026-11-05T12:08:38.799+0000	finished restoring studyuk.courses (9 documents, 0 failures)
+  2026-11-05T12:08:38.800+0000	restoring indexes for collection studyuk.courses from metadata
+  2026-11-05T12:08:38.800+0000	restoring indexes for collection studyuk.users from metadata
+  2026-11-05T12:08:38.852+0000	14 document(s) restored successfully. 0 document(s) failed to restore.
+  2026-11-05T12:08:38Z restore: done in 3s
+[12.08.39Z] RECOVERY 3/4: start the app (scripts/start.sh: live colour + gateway + backup)
+  [12:08:39] starting mongo + green colour + gateway + backup
+  [12:08:57] up: green is live
+[12.08.57Z] RECOVERY 4/4: wait for /api/health
+[12.08.58Z] App healthy again after 28.7s
+[12.08.58Z] Verify the restored data through the app
+  DB after restore:  studyuk> users=5 courses=9  studyuk> 
+  pre-backup user can log in, and sees its course: Before backup 448389736
+  post-backup user is gone (expected - this is the data-loss window)
+================ RESULT ================
+RTO (disaster -> app healthy):      28.7 s
+RPO actually lost in this drill:    21 s  (last backup 12.08.08Z -> disaster 12.08.29Z)
+Design RPO (worst case):            backup interval = 3600 s (hourly)
+Before disaster: studyuk> users=6 courses=10  studyuk> 
+After restore:   studyuk> users=5 courses=9  studyuk> 

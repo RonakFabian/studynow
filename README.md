@@ -11,7 +11,7 @@ Browser → nginx (:80) ─┬─ /     → React build
 
 ```bash
 cp .env.example .env      # then replace every CHANGE_ME (openssl rand -hex 16)
-docker compose up -d --build
+bash scripts/deploy.sh v1   # builds the images and starts everything (first deploy goes to "blue")
 ```
 
 Open http://localhost (or the VM's IP). Register an account, then log in to see the courses.
@@ -31,3 +31,75 @@ Open http://localhost (or the VM's IP). Register an account, then log in to see 
 | POST | `/api/auth/login` | no |
 | GET | `/api/courses` | Bearer token |
 | GET | `/api/health` | no |
+
+## Deploy, rollback (zero downtime)
+
+```
+Browser → gateway (nginx :80) ─┬─ /     → web-<live colour>
+                               └─ /api  → api-<live colour> → mongo
+```
+
+Two colours, **blue** and **green**; each is one `api` + one `web` container. Only one is live. `deploy/state.env` (not committed) records which colour is live and which tag each runs.
+
+```bash
+bash scripts/deploy.sh <tag>      # e.g. a git short sha; builds images, deploys to the idle colour
+bash scripts/rollback.sh          # instant switch back to the previous colour
+bash scripts/start.sh             # bring the stack up from recorded state (after reboot / restore)
+```
+
+What `deploy.sh` does: start the idle colour on the new version → wait for its Docker health checks → `nginx -t` + graceful `nginx -s reload` to switch (in-flight requests finish on the old colour) → smoke-test `/api/health` through the public port for the new version → if that fails, **automatic rollback**. If the health gate fails, traffic is never switched and the live colour is untouched. The previous colour keeps running, so rollback needs no rebuild.
+
+Rolling back a bad release: `bash scripts/rollback.sh`. (If a deploy itself failed the health gate, there is nothing to roll back - the old version is still live.) The API handles `SIGTERM` gracefully (stops accepting, finishes in-flight requests, exits).
+
+Proof of zero downtime - hammer the public port while deploying:
+
+```bash
+bash scripts/zero-downtime-demo.sh deploy v5
+bash scripts/zero-downtime-demo.sh rollback
+```
+
+Measured locally (2026-11-05; ~50 ms request loop on `/api/health` and `/`):
+
+| Test | Requests | Failed |
+|---|---|---|
+| Deploy v1 → v2 (blue → green) | 201 | **0** |
+| Rollback v2 → v1 | 92 | **0** |
+| Deploy of a deliberately crashing release (health gate aborted, never switched) | 528 | **0** |
+| Clean deploy v4 afterwards | 202 | **0** |
+
+Limits: a user who already has the old frontend open keeps working (API is backwards compatible); there are no database migrations in this app, so a schema change would need an expand/contract approach.
+
+## Backups
+
+- `backup` service runs `backup/backup.sh` every hour (`BACKUP_INTERVAL_SECONDS`): `mongodump` (as the least-privilege app user) → gzip → **age** encryption → `./offsite/` (a clearly-labelled second location simulating off-provider). Files older than `BACKUP_RETENTION_DAYS` are deleted.
+- The backup container only holds the age **public** key (`AGE_RECIPIENT` in `.env`). The **private** key lives in `secrets/age.key` (gitignored) and is only mounted into the manual `restore` service. Store a copy of it somewhere else (password manager) - without it the backups are unreadable.
+- Optional second copy to an S3-compatible bucket (Cloudflare R2 / Backblaze B2): create a gitignored `rclone.env` with `RCLONE_REMOTE=r2:bucket/path` and the `RCLONE_CONFIG_R2_*` settings. Not tested against a real bucket yet.
+- Manual backup: `docker compose run --rm --no-deps backup backup.sh`
+- Generate a key pair: `docker run --rm --entrypoint age-keygen studynow-backup > secrets/age.key` (put the printed public key in `.env` as `AGE_RECIPIENT`).
+
+## Restore
+
+```bash
+docker compose stop api web backup
+docker compose run --rm restore                 # newest backup in ./offsite
+docker compose run --rm restore restore.sh /offsite/studyuk-<timestamp>.archive.gz.age   # a specific one
+docker compose up -d
+```
+
+If the database volume is gone, start only Mongo first (`docker compose up -d mongo`), restore, then `docker compose up -d`.
+
+## Restore drill (evidence)
+
+`scripts/restore-drill.ps1` does the whole drill and prints the result; the full transcript from the run is in [docs/restore-drill-evidence.txt](docs/restore-drill-evidence.txt).
+
+Steps: seed data → encrypted backup → add more data → **destroy all containers and the MongoDB volume** → empty Mongo → restore from the encrypted backup → start app → wait for `/api/health` → verify via login.
+
+Measured (local Docker Desktop, 2026-11-05):
+
+| Metric | Result | Notes |
+|---|---|---|
+| **RTO** | **28.7 s** | From the moment of destruction to `/api/health` OK (includes Mongo init, restore, starting the live colour and gateway). Images were already built/cached; excludes human detection and decision time. A first run on the older single-stack layout measured 17.7 s. |
+| **RPO** (this drill) | **21 s** | Time between the last backup and the disaster. The user and course created in that window were lost, as expected. |
+| **RPO** (design, worst case) | **1 h** | Hourly backups. Meets the 1 h target only if every hourly run succeeds - alerting on failed/missing backups is a to-do. |
+
+Restored state matched the backup exactly (5 users / 9 courses; the 6th user and 10th course, created after the backup, were gone), and a pre-backup user could log in and see their own course. The evidence file has Docker's progress noise filtered out.

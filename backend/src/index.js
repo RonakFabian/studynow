@@ -33,8 +33,14 @@ const requireAuth = (req, res, next) => {
   }
 };
 
+// Used by Docker healthchecks and the deploy script: 503 until MongoDB is reachable.
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', db: mongoose.connection.readyState === 1 });
+  const db = mongoose.connection.readyState === 1;
+  res.status(db ? 200 : 503).json({
+    status: db ? 'ok' : 'degraded',
+    db,
+    version: process.env.APP_VERSION || 'dev',
+  });
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -116,5 +122,18 @@ async function connectWithRetry(attempts = 10) {
 (async () => {
   await connectWithRetry();
   if ((await Course.countDocuments()) === 0) await Course.insertMany(sampleCourses);
-  app.listen(PORT, () => console.log(`API listening on ${PORT}`));
+  const server = app.listen(PORT, () => console.log(`API listening on ${PORT}`));
+
+  // Graceful shutdown: stop accepting connections, let in-flight requests finish, then exit.
+  const shutdown = (signal) => {
+    console.log(`${signal} received, shutting down`);
+    server.close(async () => {
+      await mongoose.disconnect();
+      process.exit(0);
+    });
+    server.closeIdleConnections?.();
+    setTimeout(() => process.exit(1), 10000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 })();

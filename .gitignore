@@ -150,3 +150,11 @@ vite.config.ts.timestamp-*
 
 # keep the template tracked
 !.env.example
+
+# backups and keys
+offsite/
+secrets/
+rclone.env
+
+# generated deploy state
+deploy/
