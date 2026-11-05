@@ -67,6 +67,8 @@ Measured locally (2026-11-05; ~50 ms request loop on `/api/health` and `/`):
 | Deploy of a deliberately crashing release (health gate aborted, never switched) | 528 | **0** |
 | Clean deploy v4 afterwards | 202 | **0** |
 
+Also measured on the real VM (DigitalOcean droplet, 2 GB), requests sent from a laptop to the public IP over the internet while the VM switched colours twice (rollback, then forward again): **35 requests, 35 HTTP 200, 0 failed**, and `/api/health` showed the version flip `9840af0 → 66d7bcd → 9840af0` ([evidence](docs/zero-downtime-vm-evidence.txt)). Each request takes ~0.4 s over the internet, so this run sampled about 2-3 requests/s - far coarser than the local 50 ms loop above.
+
 Limits: a user who already has the old frontend open keeps working (API is backwards compatible); there are no database migrations in this app, so a schema change would need an expand/contract approach.
 
 ## CI/CD (GitHub Actions)

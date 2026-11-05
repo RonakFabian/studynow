@@ -1,0 +1,9 @@
+================ RESULT: 2 live switches on the VM under load ================
+date:            2026-11-05T15:41:17Z
+requests sent:   35
+HTTP 200:        35
+FAILED:          0
+versions served by /api/health during the run:
+      7 "version":"9840af0"
+      7 "version":"66d7bcd"
+      4 "version":"9840af0"
