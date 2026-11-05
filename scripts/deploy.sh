@@ -17,8 +17,8 @@ log "live colour: $ACTIVE | deploying tag '$TAG' to idle colour: $TARGET"
 
 if [ "${BUILD_LOCAL:-1}" = 1 ]; then
   log "building images"
-  docker build -q -t "${API_IMAGE:-studyuk-api}:$TAG" backend
-  docker build -q -t "${WEB_IMAGE:-studyuk-web}:$TAG" frontend
+  docker build -q -t "$API_IMAGE:$TAG" backend
+  docker build -q -t "$WEB_IMAGE:$TAG" frontend
 fi
 
 if [ "$TARGET" = blue ]; then BLUE_TAG="$TAG"; else GREEN_TAG="$TAG"; fi

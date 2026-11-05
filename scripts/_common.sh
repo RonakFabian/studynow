@@ -5,17 +5,21 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 STATE=deploy/state.env          # which colour is live + which image tag each colour runs (not committed)
 GW_DIR=deploy/gateway           # generated nginx upstream file lives here (not committed)
 mkdir -p "$GW_DIR"
-[ -f "$STATE" ] || printf 'ACTIVE=none\nPREVIOUS=none\nBLUE_TAG=none\nGREEN_TAG=none\n' > "$STATE"
+[ -f "$STATE" ] || printf 'ACTIVE=none\nPREVIOUS=none\nBLUE_TAG=none\nGREEN_TAG=none\nAPI_IMAGE=studyuk-api\nWEB_IMAGE=studyuk-web\n' > "$STATE"
+_api_override="${API_IMAGE:-}"; _web_override="${WEB_IMAGE:-}"   # env passed to a deploy wins over saved state
 # shellcheck disable=SC1090
 . "$STATE"
+API_IMAGE="${_api_override:-${API_IMAGE:-studyuk-api}}"
+WEB_IMAGE="${_web_override:-${WEB_IMAGE:-studyuk-web}}"
 
-export COMPOSE_PROFILES=blue,green
+export COMPOSE_PROFILES=blue,green API_IMAGE WEB_IMAGE
 dc() { docker compose --env-file .env --env-file "$STATE" "$@"; }
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 die() { log "ERROR: $*"; exit 1; }
 
 save_state() {
-  printf 'ACTIVE=%s\nPREVIOUS=%s\nBLUE_TAG=%s\nGREEN_TAG=%s\n' "$ACTIVE" "$PREVIOUS" "$BLUE_TAG" "$GREEN_TAG" > "$STATE"
+  printf 'ACTIVE=%s\nPREVIOUS=%s\nBLUE_TAG=%s\nGREEN_TAG=%s\nAPI_IMAGE=%s\nWEB_IMAGE=%s\n' \
+    "$ACTIVE" "$PREVIOUS" "$BLUE_TAG" "$GREEN_TAG" "$API_IMAGE" "$WEB_IMAGE" > "$STATE"
 }
 
 # wait_healthy <service> [timeout-seconds]

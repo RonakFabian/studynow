@@ -69,6 +69,26 @@ Measured locally (2026-11-05; ~50 ms request loop on `/api/health` and `/`):
 
 Limits: a user who already has the old frontend open keeps working (API is backwards compatible); there are no database migrations in this app, so a schema change would need an expand/contract approach.
 
+## CI/CD (GitHub Actions)
+
+`.github/workflows/ci-cd.yml`, on every push and pull request:
+
+1. **backend**: `npm ci`, ESLint, integration tests (`node --test`) against a MongoDB service container.
+2. **frontend**: `npm ci`, ESLint, production build.
+3. **images** (push to `main` only, after 1 and 2 pass): build both images and push them to GHCR, tagged with the 7-char commit sha.
+4. **deploy** (push to `main`, after 3): SSH to the VM and run `scripts/deploy.sh <sha>` with `BUILD_LOCAL=0`, i.e. the blue/green zero-downtime deploy above. A failing health gate or smoke test leaves the live version untouched (or rolls back automatically).
+
+The deploy job is **off until the VM exists**: it only runs when the repo variable `DEPLOY_ENABLED` is `true`. Locally the same checks run with `npm run lint && npm test` (set `MONGO_URI` to a throwaway MongoDB).
+
+### One-time VM setup
+
+1. Ubuntu 24.04 VM (2 GB RAM: two colours run side by side), SSH key login, firewall open on 22/80/443 only.
+2. Install Docker + the compose plugin and `git`; clone this repo to `/opt/studyuk`.
+3. Create `/opt/studyuk/.env` from `.env.example` with real secrets, and put the age **public** key in `AGE_RECIPIENT` (the private key never needs to be on the VM, except while restoring).
+4. Create a deploy SSH key pair; add the public key to the VM user's `authorized_keys`.
+5. In GitHub (Settings → Secrets and variables → Actions), create an Environment `production` and add secrets `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_KNOWN_HOSTS` (output of `ssh-keyscan <host>`), then the repository variable `DEPLOY_ENABLED=true`.
+6. Make the GHCR packages readable by the VM (the workflow logs the VM in with the job's short-lived token for each deploy).
+
 ## Backups
 
 - `backup` service runs `backup/backup.sh` every hour (`BACKUP_INTERVAL_SECONDS`): `mongodump` (as the least-privilege app user) → gzip → **age** encryption → `./offsite/` (a clearly-labelled second location simulating off-provider). Files older than `BACKUP_RETENTION_DAYS` are deleted.
