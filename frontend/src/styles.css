@@ -1,0 +1,22 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6fb; color: #1b2438; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: #12326b; color: #fff; }
+header h1 { margin: 0; font-size: 1.4rem; }
+header span { margin-right: 12px; }
+main { max-width: 960px; margin: 32px auto; padding: 0 16px; }
+.card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0, 0, 0, .1); }
+form.card { max-width: 380px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+form.card h2 { margin: 0 0 4px; }
+input { padding: 10px; border: 1px solid #c5cbd8; border-radius: 6px; font-size: 1rem; }
+button { padding: 10px; border: 0; border-radius: 6px; background: #c8102e; color: #fff; font-size: 1rem; cursor: pointer; }
+button.link { background: none; text-decoration: underline; padding: 0; font-size: .95rem; }
+.switch { margin: 0; font-size: .9rem; text-align: center; }
+.error { color: #b00020; margin: 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.course h3 { margin: 8px 0; }
+.course p { margin: 0 0 12px; color: #4a5368; }
+.tag { background: #e3eaf8; color: #12326b; padding: 2px 8px; border-radius: 99px; font-size: .75rem; font-weight: 600; }
+.add { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.add h3 { grid-column: 1 / -1; margin: 0; }
+.tag.mine { background: #fde8ec; color: #c8102e; margin-left: 6px; }
+button.delete { display: block; margin-top: 12px; padding: 6px 12px; font-size: .85rem; background: #6b7280; }
