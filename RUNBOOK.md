@@ -4,7 +4,7 @@ Everything runs on one VM in Docker Compose.
 
 - Log in: `ssh deploy@<vm-ip>` (the address is in the DigitalOcean panel and the `SSH_HOST` GitHub secret)
 - App folder: `/opt/studyuk`
-- Alerts go to the Discord channel.
+- Alerts go to the Discord channel. UptimeRobot posts when the site or database is down. The backup check is the `monitor` workflow, which you start by hand (GitHub Actions → monitor → Run workflow); check it at least daily.
 - Passwords and keys are in the password manager.
 
 ## Deploy
@@ -97,7 +97,7 @@ If the whole VM is gone, make a new one, install Docker, put the `.env` back fro
 5. **Check:** the health URL again, and log in on the site.
 6. **Write down** what happened and when. Targets: back within 4 hours, lose at most 1 hour of data.
 
-**Backup alert (`:warning:` in Discord):** on the VM run `docker compose --env-file .env --env-file deploy/state.env logs --tail 30 backup`.
+**Backup check failed (`:warning:` in Discord after you run the monitor workflow):** on the VM run `docker compose --env-file .env --env-file deploy/state.env logs --tail 30 backup`.
 
 - A 401 or 403 error means the bucket key changed. Fix the GitHub secrets and re-run the deploy.
 - No log lines means the container is down. Run `bash scripts/start.sh`.

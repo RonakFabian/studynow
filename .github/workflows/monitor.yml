@@ -1,6 +1,8 @@
 name: monitor
 
-# Scheduled health check from OUTSIDE the VM (so it still alerts when the whole VM is down).
+# Health + backup-freshness checks from OUTSIDE the VM, alerting Discord. Run by hand (Run workflow).
+# The schedule below never fired for this repo (GitHub's cron is best-effort), so uptime alerting is UptimeRobot;
+# see "Monitoring and alerting" in the README.
 # Needs: repository variable HEALTH_URL (e.g. http://<vm-ip>/api/health) and repository secret DISCORD_WEBHOOK_URL.
 on:
   schedule:

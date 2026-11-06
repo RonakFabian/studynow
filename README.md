@@ -95,12 +95,18 @@ The deploy job is **off until the VM exists**: it only runs when the repo variab
 
 ## Monitoring and alerting
 
-`.github/workflows/monitor.yml` runs on a 5-minute GitHub Actions schedule (and by hand: **Run workflow**), from outside the VM so it still alerts if the VM is down:
+Two checks, both alert to Discord. Both run from outside the VM, so they still work if the VM is down.
 
-1. **Health:** `GET $HEALTH_URL` (`/api/health`, 3 attempts) must return 200 with `"db":true`.
-2. **Backup freshness:** the bucket must hold a `studyuk-*.age` file newer than 90 minutes (hourly backups, one missed run of slack). This is what protects the 1 h RPO.
+**Uptime: UptimeRobot** (free plan, every 5 minutes). A keyword monitor on `http://<vm-ip>/api/health` that alerts when `"db":true` is missing, so it fires both when the site is unreachable and when the app is up but cannot reach MongoDB.
 
-A failure posts to Discord (`DISCORD_WEBHOOK_URL` secret) with the reason and a link to the run. Setup: repository variables `HEALTH_URL`, `B2_BUCKET_NAME`; repository secrets `DISCORD_WEBHOOK_URL`, `B2_MONITOR_KEY_ID`, `B2_MONITOR_APP_KEY` (a read-only bucket key). The manual run has "simulate failure" boxes to test each alert. Limits: GitHub may start scheduled runs several minutes late, and the alert repeats every run until fixed. Prometheus/Grafana was not built (stretch goal).
+**Health and backup freshness: `.github/workflows/monitor.yml`**, started by hand with **Run workflow**:
+
+1. **Health:** `GET $HEALTH_URL` (3 attempts) must return 200 with `"db":true`.
+2. **Backup freshness:** the bucket must hold a `studyuk-*.age` file newer than 90 minutes (hourly backups plus one missed run). This is what protects the 1 h RPO.
+
+A failure posts to Discord (`DISCORD_WEBHOOK_URL`) with the reason and a link to the run. Setup: repository variables `HEALTH_URL`, `B2_BUCKET_NAME`; repository secrets `DISCORD_WEBHOOK_URL`, `B2_MONITOR_KEY_ID`, `B2_MONITOR_APP_KEY` (a read-only bucket key). The manual run has "simulate failure" boxes to test each alert.
+
+**Why UptimeRobot and not only a GitHub schedule:** the workflow also has a 5-minute `schedule:` trigger, but GitHub never started a single scheduled run for this repo (checked through the Actions API, over several hours, and again after moving the cron off the busy :00/:05 minutes), while manual runs worked. GitHub documents scheduled runs as best-effort, so uptime alerting uses a dedicated pinger. Known gap: nothing alerts on a schedule if the backup container dies, so the freshness check has to be run by hand (see the runbook). Prometheus/Grafana was not built (stretch goal).
 
 ## Backups
 
