@@ -4,7 +4,7 @@ name: monitor
 # Needs: repository variable HEALTH_URL (e.g. http://<vm-ip>/api/health) and repository secret DISCORD_WEBHOOK_URL.
 on:
   schedule:
-    - cron: "*/5 * * * *"        # GitHub's minimum interval; runs can start a few minutes late
+    - cron: "2-57/5 * * * *"     # every 5 min at :02 :07 :12 ... (off the busy :00/:05 marks, which GitHub delays or drops)
   workflow_dispatch:
     inputs:
       simulate_failure:
