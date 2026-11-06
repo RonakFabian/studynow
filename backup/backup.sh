@@ -35,7 +35,9 @@ log "wrote $OFFSITE_DIR/$name (${size} bytes, $(( $(date +%s) - start ))s)"
 
 # optional second off-provider copy to an S3-compatible bucket (Cloudflare R2 / Backblaze B2)
 if [ -n "${RCLONE_REMOTE:-}" ]; then
-  rclone copyto "$OFFSITE_DIR/$name" "${RCLONE_REMOTE%/}/$name"
+  # The VM key is write-only: it may not read or list, so rclone must not HEAD/list the destination
+  # first (that was the 401). File names are unique timestamps, so skipping the check is safe.
+  rclone copyto --no-check-dest --no-check-bucket "$OFFSITE_DIR/$name" "${RCLONE_REMOTE%/}/$name"
   log "uploaded to ${RCLONE_REMOTE}"
 fi
 
