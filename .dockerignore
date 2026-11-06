@@ -5,3 +5,4 @@ dist
 offsite
 secrets
 rclone.env
+restore.env

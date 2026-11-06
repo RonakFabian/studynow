@@ -125,7 +125,7 @@ services:
       <<: *backup-env
       RESTORE_SOURCE: ${RESTORE_SOURCE:-local}     # "remote" = download the newest backup from the bucket
     env_file:
-      - path: ./rclone.env
+      - path: ./restore.env     # READ-ONLY bucket key, put here only while restoring (never rclone.env: that key is write-only)
         required: false
     volumes:
       - ./offsite:/offsite:ro

@@ -155,6 +155,7 @@ vite.config.ts.timestamp-*
 offsite/
 secrets/
 rclone.env
+restore.env
 
 # generated deploy state
 deploy/
