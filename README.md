@@ -2,6 +2,8 @@
 
 Small study-platform demo: React frontend, Express API, MongoDB (with auth), served through nginx.
 
+**On call? Start with the [runbook](RUNBOOK.md)**: deploy, roll back, restore, and the "site is down at 2am" checklist.
+
 ```
 Browser → nginx (:80) ─┬─ /     → React build
                        └─ /api  → Express :3000 → MongoDB :27017 (internal only)
