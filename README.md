@@ -95,7 +95,7 @@ The deploy job is **off until the VM exists**: it only runs when the repo variab
 
 - `backup` service runs `backup/backup.sh` every hour (`BACKUP_INTERVAL_SECONDS`): `mongodump` (as the least-privilege app user) → gzip → **age** encryption → `./offsite/` (a clearly-labelled second location simulating off-provider). Files older than `BACKUP_RETENTION_DAYS` are deleted.
 - The backup container only holds the age **public** key (`AGE_RECIPIENT` in `.env`). The **private** key lives in `secrets/age.key` (gitignored) and is only mounted into the manual `restore` service. Store a copy of it somewhere else (password manager) - without it the backups are unreadable.
-- Second copy to a Backblaze B2 bucket (off the VM provider) via rclone. In production the deploy job writes `rclone.env` from GitHub secrets (see CI/CD). Locally, create a gitignored `rclone.env` with `RCLONE_REMOTE=b2:bucket`, `RCLONE_CONFIG_B2_TYPE=b2`, `RCLONE_CONFIG_B2_ACCOUNT=<keyID>`, `RCLONE_CONFIG_B2_KEY=<applicationKey>`. The VM's key can only list and write, so a compromised VM cannot read or delete backups. Restore from the bucket needs a separate read key on your laptop: `RESTORE_SOURCE=remote docker compose run --rm restore`. Not yet verified against the real bucket.
+- Second copy to a Backblaze B2 bucket (off the VM provider) via rclone. In production the deploy job writes `rclone.env` from GitHub secrets (see CI/CD). Locally, create a gitignored `rclone.env` with `RCLONE_REMOTE=b2:bucket`, `RCLONE_CONFIG_B2_TYPE=b2`, `RCLONE_CONFIG_B2_ACCOUNT=<keyID>`, `RCLONE_CONFIG_B2_KEY=<applicationKey>`. The VM's key can only list and write, so a compromised VM cannot read or delete backups. Restore from the bucket needs a separate read key on your laptop: `RESTORE_SOURCE=remote docker compose run --rm restore`. Verified against the real bucket (see the VM drill below).
 - Manual backup: `docker compose run --rm --no-deps backup backup.sh`
 - Generate a key pair: `docker run --rm --entrypoint age-keygen studynow-backup > secrets/age.key` (put the printed public key in `.env` as `AGE_RECIPIENT`).
 
@@ -125,3 +125,15 @@ Measured (local Docker Desktop, 2026-11-05):
 | **RPO** (design, worst case) | **1 h** | Hourly backups. Meets the 1 h target only if every hourly run succeeds - alerting on failed/missing backups is a to-do. |
 
 Restored state matched the backup exactly (5 users / 9 courses; the 6th user and 10th course, created after the backup, were gone), and a pre-backup user could log in and see their own course. The evidence file has Docker's progress noise filtered out.
+
+### Drill on the real VM, restoring from the off-provider bucket
+
+`scripts/restore-drill.sh` (run on the VM) registers user A, takes a backup that is uploaded to Backblaze B2, registers user B, then destroys all containers, the MongoDB volume **and the local backup copies**. It restores the newest backup **downloaded from the bucket**, decrypts it, starts the app and checks that A can log in and B cannot. The age private key and the read-only bucket key are placed on the VM only for the drill and removed by the script on exit ([full transcript](docs/restore-drill-vm-evidence.txt)).
+
+| Metric | Result (2026-11-06, DigitalOcean 2 GB droplet) |
+|---|---|
+| **RTO** | **42 s**: disaster to `/api/health` OK, including Mongo init, bucket download, decrypt, restore and starting the app |
+| **RPO** (this drill) | **2 s**: user B, created after the backup, was lost; user A survived |
+| **RPO** (design) | **1 h**, only if every hourly backup succeeds |
+
+The first attempt restored the data but the gateway then crashed: `active.conf` was mode 600 because of a `umask 077` in my SSH session, and nginx runs as another user. The drill found it; `_common.sh` now makes the file 644. The 42 s figure is from the second, clean run. RTO excludes human detection and decision time, and this drill restores onto the same VM; a fresh-VM rebuild (new host, Docker install, deploy, then restore) is slower and has not been timed.
