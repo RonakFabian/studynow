@@ -1,0 +1,54 @@
+name: monitor
+
+# Scheduled health check from OUTSIDE the VM (so it still alerts when the whole VM is down).
+# Needs: repository variable HEALTH_URL (e.g. http://<vm-ip>/api/health) and repository secret DISCORD_WEBHOOK_URL.
+on:
+  schedule:
+    - cron: "*/5 * * * *"        # GitHub's minimum interval; runs can start a few minutes late
+  workflow_dispatch:
+    inputs:
+      simulate_failure:
+        description: "Pretend the check failed (to test the Discord alert)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: health check
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check /api/health
+        id: check
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+          SIMULATE: ${{ inputs.simulate_failure }}
+        run: |
+          set -u
+          if [ "$SIMULATE" = "true" ]; then
+            echo "reason=simulated failure (manual test)" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          if [ -z "$HEALTH_URL" ]; then
+            echo "reason=HEALTH_URL variable is not set" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          # 3 attempts so one dropped packet does not page anyone
+          if ! body="$(curl -fsS -m 10 --retry 2 --retry-delay 5 --retry-all-errors "$HEALTH_URL" 2>&1)"; then
+            echo "reason=request failed: ${body:0:200}" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          echo "$body"
+          if ! echo "$body" | grep -q '"db":true'; then
+            echo "reason=unhealthy response: ${body:0:200}" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+      - name: Alert Discord
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REASON: ${{ steps.check.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+          msg="$(printf ':rotating_light: **StudyUK health check FAILED**\n%s\nRun: %s' "${REASON:-unknown}" "$RUN_URL")"
+          jq -n --arg c "$msg" '{content: $c}' | curl -fsS -m 15 -H 'Content-Type: application/json' -d @- "$WEBHOOK"
