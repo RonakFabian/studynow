@@ -40,6 +40,7 @@ wait_healthy() {
 # write_upstream <colour>: atomically point the gateway config at one colour
 write_upstream() {
   printf 'upstream api_active { server api-%s:3000; }\nupstream web_active { server web-%s:8080; }\n' "$1" "$1" > "$GW_DIR/active.conf.tmp"
+  chmod 644 "$GW_DIR/active.conf.tmp"   # nginx runs as another uid in the container; don't inherit a strict umask (e.g. 077)
   mv "$GW_DIR/active.conf.tmp" "$GW_DIR/active.conf"
 }
 
