@@ -93,6 +93,15 @@ The deploy job is **off until the VM exists**: it only runs when the repo variab
 5. In GitHub (Settings → Secrets and variables → Actions), create an Environment `production` and add secrets `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_KNOWN_HOSTS` (output of `ssh-keyscan <host>`), then the repository variable `DEPLOY_ENABLED=true`. For off-provider backups also add the environment secrets `B2_BUCKET`, `B2_KEY_ID`, `B2_APP_KEY` (a Backblaze key restricted to that bucket with **list + write only**); each deploy writes them to `/opt/studyuk/rclone.env` (mode 600) on the VM, where the hourly backup container reads them.
 6. Make the GHCR packages readable by the VM (the workflow logs the VM in with the job's short-lived token for each deploy).
 
+## Monitoring and alerting
+
+`.github/workflows/monitor.yml` runs on a 5-minute GitHub Actions schedule (and by hand: **Run workflow**), from outside the VM so it still alerts if the VM is down:
+
+1. **Health:** `GET $HEALTH_URL` (`/api/health`, 3 attempts) must return 200 with `"db":true`.
+2. **Backup freshness:** the bucket must hold a `studyuk-*.age` file newer than 90 minutes (hourly backups, one missed run of slack). This is what protects the 1 h RPO.
+
+A failure posts to Discord (`DISCORD_WEBHOOK_URL` secret) with the reason and a link to the run. Setup: repository variables `HEALTH_URL`, `B2_BUCKET_NAME`; repository secrets `DISCORD_WEBHOOK_URL`, `B2_MONITOR_KEY_ID`, `B2_MONITOR_APP_KEY` (a read-only bucket key). The manual run has "simulate failure" boxes to test each alert. Limits: GitHub may start scheduled runs several minutes late, and the alert repeats every run until fixed. Prometheus/Grafana was not built (stretch goal).
+
 ## Backups
 
 - `backup` service runs `backup/backup.sh` every hour (`BACKUP_INTERVAL_SECONDS`): `mongodump` (as the least-privilege app user) → gzip → **age** encryption → `./offsite/` (a clearly-labelled second location simulating off-provider). Files older than `BACKUP_RETENTION_DAYS` are deleted.
@@ -124,7 +133,7 @@ Measured (local Docker Desktop, 2026-11-05):
 |---|---|---|
 | **RTO** | **28.7 s** | From the moment of destruction to `/api/health` OK (includes Mongo init, restore, starting the live colour and gateway). Images were already built/cached; excludes human detection and decision time. A first run on the older single-stack layout measured 17.7 s. |
 | **RPO** (this drill) | **21 s** | Time between the last backup and the disaster. The user and course created in that window were lost, as expected. |
-| **RPO** (design, worst case) | **1 h** | Hourly backups. Meets the 1 h target only if every hourly run succeeds - alerting on failed/missing backups is a to-do. |
+| **RPO** (design, worst case) | **1 h** | Hourly backups. Meets the 1 h target only if every hourly run succeeds - the `monitor` workflow alerts Discord if no backup newer than 90 min is in the bucket. |
 
 Restored state matched the backup exactly (5 users / 9 courses; the 6th user and 10th course, created after the backup, were gone), and a pre-backup user could log in and see their own course. The evidence file has Docker's progress noise filtered out.
 

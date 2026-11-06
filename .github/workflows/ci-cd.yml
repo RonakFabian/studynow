@@ -1,8 +1,7 @@
 name: ci-cd
 
 on:
-  push:
-    branches: [main]
+  push:                  # every push runs lint + tests; only main builds images and deploys (see job conditions)
   pull_request:
 
 permissions:
