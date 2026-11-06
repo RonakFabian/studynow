@@ -11,6 +11,10 @@ on:
         description: "Pretend the check failed (to test the Discord alert)"
         type: boolean
         default: false
+      simulate_stale_backup:
+        description: "Pretend no recent backup exists (to test the Discord alert)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -51,4 +55,45 @@ jobs:
         run: |
           [ -n "$WEBHOOK" ] || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
           msg="$(printf ':rotating_light: **StudyUK health check FAILED**\n%s\nRun: %s' "${REASON:-unknown}" "$RUN_URL")"
+          jq -n --arg c "$msg" '{content: $c}' | curl -fsS -m 15 -H 'Content-Type: application/json' -d @- "$WEBHOOK"
+
+  backup:
+    name: backup freshness (bucket)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # RPO is 1 h: backups are hourly, so no file newer than 90 min means a run was missed or the upload failed.
+    steps:
+      - name: Newest backup in the bucket
+        id: check
+        env:
+          SIMULATE: ${{ inputs.simulate_stale_backup }}
+          BUCKET: ${{ vars.B2_BUCKET_NAME }}
+          RCLONE_CONFIG_B2_TYPE: b2
+          RCLONE_CONFIG_B2_ACCOUNT: ${{ secrets.B2_MONITOR_KEY_ID }}
+          RCLONE_CONFIG_B2_KEY: ${{ secrets.B2_MONITOR_APP_KEY }}
+        run: |
+          set -u
+          if [ "$SIMULATE" = "true" ]; then
+            echo "reason=simulated stale backup (manual test)" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          if [ -z "$BUCKET" ] || [ -z "$RCLONE_CONFIG_B2_ACCOUNT" ]; then
+            echo "reason=B2_BUCKET_NAME variable or B2_MONITOR_* secrets are not set" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          sudo apt-get install -y -qq rclone > /dev/null
+          if ! list="$(rclone lsf "b2:$BUCKET" --files-only --max-age 90m 2>&1)"; then
+            echo "reason=could not list the bucket: ${list:0:200}" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          echo "backups newer than 90 min:"; echo "$list"
+          if ! echo "$list" | grep -qE '^studyuk-.*\.age$'; then
+            echo "reason=no backup in the bucket newer than 90 minutes (hourly backups expected)" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+      - name: Alert Discord
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REASON: ${{ steps.check.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+          msg="$(printf ':warning: **StudyUK backup check FAILED**\n%s\nRun: %s' "${REASON:-unknown}" "$RUN_URL")"
           jq -n --arg c "$msg" '{content: $c}' | curl -fsS -m 15 -H 'Content-Type: application/json' -d @- "$WEBHOOK"
